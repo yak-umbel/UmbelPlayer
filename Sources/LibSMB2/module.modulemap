@@ -1,0 +1,4 @@
+module LibSMB2 {
+  header "LibSMB2.h"
+  export *
+}

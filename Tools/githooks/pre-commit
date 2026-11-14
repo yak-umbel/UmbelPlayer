@@ -1,0 +1,4 @@
+#!/bin/bash
+# Names that must not be committed, in what is about to be; see
+# Tools/check_names.py. Enabled with: git config core.hooksPath Tools/githooks
+exec python3 "$(git rev-parse --show-toplevel)/Tools/check_names.py" staged

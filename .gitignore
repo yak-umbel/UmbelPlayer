@@ -1,0 +1,26 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserdatastate
+xcuserdata/
+Binaries/*.xcframework/
+Tools/BuildFFmpeg/build/
+Tools/BuildFFmpeg/sources/
+Tools/BuildLibass/build/
+Tools/BuildLibass/sources/
+Tools/BuildNetwork/build/
+Tools/BuildNetwork/sources/
+docs/design/
+docs/plans/
+docs/guides/
+.vscode/
+
+# Media for acceptance by hand: large, from many places, kept out of git.
+videos/
+
+# Python bytecode from the tools.
+__pycache__/
+
+# Local experiments, build products, logs and reproduction media.
+/tmp/

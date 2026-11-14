@@ -1,0 +1,4 @@
+module FFmpeg {
+  header "FFmpeg.h"
+  export *
+}

@@ -1,0 +1,55 @@
+// swift-tools-version: 6.0
+import Foundation
+import PackageDescription
+
+// The package as the repository has it, cut down to what the simulator run needs: the modules are in
+// the dynamic UmbelCore product, as in the repository (Tools/check_package_products.py says why).
+let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+func isBuilt(_ name: String) -> Bool {
+  FileManager.default.fileExists(atPath: here.appendingPathComponent("Binaries/\(name).xcframework").path)
+}
+let modules: [(target: String, framework: String, library: String, tests: [String])] = [
+  ("UmbelSRTSource", "UmbelSRT", "LibSRT", ["UmbelSRTSourceTests"]),
+  ("UmbelSFTPSource", "UmbelSSH2", "LibSSH2", ["UmbelSFTPSmokeTests"]),
+  ("UmbelRISTSource", "UmbelRIST", "LibRIST", ["UmbelRISTSourceTests"]),
+  ("UmbelSMBSource", "UmbelSMB2", "LibSMB2", ["UmbelSMBSmokeTests"]),
+  ("UmbelNFSSource", "UmbelNFS", "LibNFS", ["UmbelNFSSourceTests"]),
+]
+var coreTargets = ["UmbelCore", "UmbelUI"]
+var targets: [Target] = [
+  .binaryTarget(name: "UmbelFFmpeg", path: "Binaries/UmbelFFmpeg.xcframework"),
+  .binaryTarget(name: "UmbelASS", path: "Binaries/UmbelASS.xcframework"),
+  .binaryTarget(name: "UmbelFriBidi", path: "Binaries/UmbelFriBidi.xcframework"),
+  .systemLibrary(name: "FFmpeg"),
+  .systemLibrary(name: "LibASS"),
+  .target(name: "UmbelFFmpegSupport", dependencies: ["FFmpeg", "UmbelFFmpeg"]),
+  .target(name: "UmbelASSSupport", dependencies: ["LibASS", "UmbelASS", "UmbelFriBidi"]),
+  .target(name: "UmbelObjCSupport"),
+  .target(
+    name: "UmbelCore",
+    dependencies: ["UmbelFFmpegSupport", "UmbelASSSupport", "UmbelObjCSupport"],
+    resources: [
+      .copy("Video/Shaders/video.metalsrc"), .copy("Video/Shaders/subtitle_overlay.metalsrc"),
+      .copy("Video/Shaders/deinterlace.metalsrc"), .copy("Notices/Texts"), .copy("PrivacyInfo.xcprivacy"),
+    ]),
+  .target(name: "UmbelUI", dependencies: ["UmbelCore"]),
+]
+for module in modules {
+  precondition(isBuilt(module.framework), "\(module.framework) is not built")
+  coreTargets.append(module.target)
+  targets += [
+    .binaryTarget(name: module.framework, path: "Binaries/\(module.framework).xcframework"),
+    .systemLibrary(name: module.library),
+    .target(name: module.target, dependencies: ["UmbelCore", .init(stringLiteral: module.library), .init(stringLiteral: module.framework)],
+            resources: [.copy("Notices/Texts")]),
+  ]
+  for test in module.tests {
+    targets.append(.testTarget(
+      name: test, dependencies: [.init(stringLiteral: module.target), "UmbelCore", .init(stringLiteral: module.library), .init(stringLiteral: module.framework)]))
+  }
+}
+let package = Package(
+  name: "UmbelPlayer",
+  platforms: [.iOS(.v15), .macOS(.v12)],
+  products: [.library(name: "UmbelCore", type: .dynamic, targets: coreTargets)],
+  targets: targets)

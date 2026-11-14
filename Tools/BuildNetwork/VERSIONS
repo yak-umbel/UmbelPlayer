@@ -1,0 +1,27 @@
+# name version source-archive-SHA256 download-URL
+# OpenSSL's checksum is the one upstream publishes (the digest of the release
+# asset). SRT publishes no source archive of its own: the archive here is
+# GitHub's of the release tag, and its checksum was worked out when the
+# version was chosen — a pin against a changed download, not a value upstream
+# vouches for.
+# libssh2 publishes a signature, not a checksum: the archive's signature was
+# verified (gpg) against Daniel Stenberg's published key (fingerprint
+# 27EDEAF22F3ABCEB50DB9A125CC908FDB71E12C2, fetched from his own site) when the
+# version was chosen, and the checksum is that of the archive that verified.
+# librist publishes neither a checksum nor a signature for its release: the
+# archive is GitLab's of the release tag (v0.2.20, 2026-07-30), downloaded twice
+# with the same digest, and its checksum was worked out when the version was
+# chosen — a pin against a changed download, not a value upstream vouches for.
+# libsmb2 publishes no checksum or signature either: the archive is GitHub's of
+# the release tag (libsmb2-6.3, 2026-10-21), downloaded twice with the same
+# digest, and its checksum was worked out when the version was chosen.
+# libnfs likewise: GitHub's archive of the release tag (libnfs-8.0.0, 2026-09-20),
+# downloaded twice with the same digest, its checksum worked out when the version
+# was chosen.
+# Upgrade all four columns together; the script reads versions only from here.
+openssl 3.5.9 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz
+srt 1.5.7 017cd1e437ef2073a4dd10ddf7b55e86bc3d6ebac0393d13bd22f6a57055d32b https://github.com/Haivision/srt/archive/refs/tags/v1.5.7.tar.gz
+libssh2 1.11.1 d9ec76cbe34db98eec3539fe2c899d26b0c837cb3eb466a56b0f109cabf658f7 https://github.com/libssh2/libssh2/releases/download/libssh2-1.11.1/libssh2-1.11.1.tar.gz
+librist 0.2.20 9e40eeb87f014790531ad41326cc271b930a65962e4b15231b301fc59b29fe31 https://code.videolan.org/rist/librist/-/archive/v0.2.20/librist-v0.2.20.tar.gz
+libsmb2 6.3.0 5011003fd091513f897e1ebbb8e1a40af634386df7199716348b7f77569a2790 https://github.com/sahlberg/libsmb2/archive/refs/tags/libsmb2-6.3.tar.gz
+libnfs 8.0.0 bc91216e927a85142b5de611c7f711558e02119a7daad67620ea631634038350 https://github.com/sahlberg/libnfs/archive/refs/tags/libnfs-8.0.0.tar.gz

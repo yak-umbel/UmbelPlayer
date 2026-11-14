@@ -1,0 +1,19 @@
+#!/bin/bash
+# The last check before anything leaves: every commit about to be pushed,
+# its message and what it adds. Git passes one line per ref:
+#   <local ref> <local sha> <remote ref> <remote sha>
+set -euo pipefail
+
+remote="$1"
+checker="$(git rev-parse --show-toplevel)/Tools/check_names.py"
+zero=0000000000000000000000000000000000000000
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue  # deleting a ref pushes nothing
+  if [ "$remote_sha" = "$zero" ]; then
+    # New on the remote: everything it has not seen yet.
+    python3 "$checker" commits -- "$local_sha" --not "--remotes=$remote"
+  else
+    python3 "$checker" commits -- "$remote_sha..$local_sha"
+  fi
+done

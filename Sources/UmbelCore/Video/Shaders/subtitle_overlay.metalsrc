@@ -1,0 +1,54 @@
+#include <metal_stdlib>
+using namespace metal;
+
+struct SubtitleVertexOut {
+  float4 position [[position]];
+  float2 uv;
+};
+
+/// One subtitle image as a triangle strip. `corners` is the image's left,
+/// top, right and bottom edges in clip space; no vertex buffer needed.
+vertex SubtitleVertexOut subtitleVertex(uint id [[vertex_id]],
+                                        constant float4 &corners [[buffer(0)]]) {
+  // Bottom-left, bottom-right, top-left, top-right; texture origin top-left.
+  const float2 uvs[4] = { float2(0, 1), float2(1, 1), float2(0, 0), float2(1, 0) };
+  float2 uv = uvs[id];
+  SubtitleVertexOut out;
+  out.position = float4(mix(corners.x, corners.z, uv.x), mix(corners.y, corners.w, uv.y), 0, 1);
+  out.uv = uv;
+  return out;
+}
+
+/// sRGB's decoding curve, IEC 61966-2-1.
+static float3 srgbToLinear(float3 v) {
+  return select(pow((v + 0.055) / 1.055, 2.4), v / 12.92, v <= 0.04045);
+}
+
+/// BT.709 to BT.2020 primaries, in linear light (BT.2087).
+constant float3x3 bt709ToBt2020 = float3x3(
+  float3(0.6274, 0.0691, 0.0164),
+  float3(0.3293, 0.9195, 0.0880),
+  float3(0.0433, 0.0114, 0.8956));
+
+/// The image, premultiplied, blended by the pipeline as one + (1 - source
+/// alpha). `target` says what the picture under it holds: 0 standard range,
+/// where the image goes on as it is; 1 PQ and 2 HLG in linear light, where
+/// it is decoded to light and its white put at BT.2408's reference white —
+/// 203 nits (2.03 at 100 nits a unit), and HLG's 75% signal (scene light
+/// 3.1796 on the 0...12 scale the picture is in) — in BT.2020 primaries. Blending in light keeps a dark outline's
+/// soft edge as soft over a bright picture as it was drawn.
+fragment float4 subtitleFragment(SubtitleVertexOut in [[stage_in]],
+                                 texture2d<float> image [[texture(0)]],
+                                 constant int &target [[buffer(0)]]) {
+  constexpr sampler linearSampler(filter::linear, address::clamp_to_edge);
+  float4 colour = image.sample(linearSampler, in.uv);
+  if (target == 0 || colour.a <= 0.0) { return colour; }
+  float3 light = srgbToLinear(colour.rgb / colour.a);
+  if (target == 5) {
+    float3 signal = select(1.099 * pow(light, 0.45) - 0.099, light * 4.5, light < 0.018);
+    return float4(signal * colour.a, colour.a);
+  }
+  if (target != 3) { light = bt709ToBt2020 * light; }
+  float3 scaled = light * (target == 1 ? 2.03 : target == 2 ? 3.1796 : 1.0);
+  return float4(scaled * colour.a, colour.a);
+}

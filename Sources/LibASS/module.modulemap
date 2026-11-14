@@ -1,0 +1,4 @@
+module LibASS {
+  header "LibASS.h"
+  export *
+}

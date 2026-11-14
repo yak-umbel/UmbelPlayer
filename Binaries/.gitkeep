@@ -1,0 +1,2 @@
+Where UmbelFFmpeg, UmbelASS and UmbelFriBidi are built to. The binaries are
+not in git; Tools/BuildFFmpeg and Tools/BuildLibass build them.

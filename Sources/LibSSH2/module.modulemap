@@ -1,0 +1,4 @@
+module LibSSH2 {
+  header "LibSSH2.h"
+  export *
+}

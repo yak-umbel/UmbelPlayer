@@ -1,0 +1,4 @@
+module LibSRT {
+  header "LibSRT.h"
+  export *
+}

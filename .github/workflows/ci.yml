@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # By hand too: a push the server accepted without starting a run has no
+  # other way to be checked.
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      # The cache keys carry the toolchain's fingerprint: should the image's
+      # Xcode be upgraded quietly, the caches lapse and are rebuilt, rather
+      # than old products built against another SDK being used on.
+      - name: Capture toolchain fingerprint
+        id: toolchain
+        run: |
+          fingerprint="$(xcodebuild -version | tr '\n' '-' | tr -d ' ')"
+          echo "xcode=${fingerprint}" >> "$GITHUB_OUTPUT"
+
+      # The FFmpeg xcframeworks are not in git (see .gitignore), but swift
+      # build and swift test need them. A full rebuild takes over ten
+      # minutes, so they are cached by what goes into the build: a change to
+      # FFMPEG_VERSION, build.sh or framework.sh (which wraps each library as
+      # a framework) changes the key, and the cache is rebuilt once. Nobody
+      # has to maintain it by hand.
+      # The path is FFmpeg's one framework, not all of Binaries/: libass has a
+      # cache of its own, built from other inputs, and one path for both would
+      # have each overwrite the other.
+      - name: Restore FFmpeg xcframeworks
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: Binaries/UmbelFFmpeg.xcframework
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Tools/BuildFFmpeg/FFMPEG_VERSION', 'Tools/BuildFFmpeg/DAV1D_VERSION', 'Tools/BuildFFmpeg/build.sh', 'Tools/BuildFFmpeg/dav1d.sh', 'Tools/BuildFFmpeg/PrivacyInfo.xcprivacy', 'Sources/UmbelCore/Notices/Texts/dav1d.txt', 'Tools/framework.sh', 'Tools/link_dylib.sh') }}
+
+      # The x86_64 slice's assembly needs nasm; without it configure stops.
+      - name: Install FFmpeg build tools
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: brew install meson ninja pkg-config nasm
+
+      - name: Build FFmpeg (LGPL)
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: Tools/BuildFFmpeg/build.sh
+
+      # Saved as soon as the build is done, not at the end of the job: a job
+      # whose checks fail saves nothing at its end, and then every run would
+      # build the libraries again from the start.
+      - name: Save FFmpeg xcframeworks
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Binaries/UmbelFFmpeg.xcframework
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
+
+      # libass and what it depends on (FreeType, HarfBuzz, FriBidi) are
+      # likewise built from source and cached by their build inputs.
+      - name: Restore libass xcframeworks
+        id: libass-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            Binaries/UmbelASS.xcframework
+            Binaries/UmbelFriBidi.xcframework
+          key: libass-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Tools/BuildLibass/VERSIONS', 'Tools/BuildLibass/build.sh', 'Tools/BuildLibass/PrivacyInfo.xcprivacy', 'Tools/BuildLibass/PrivacyInfo-FriBidi.xcprivacy', 'Tools/framework.sh', 'Tools/link_dylib.sh', 'Tools/verify_libass_license.sh') }}
+
+      - name: Install meson, ninja and nasm
+        if: steps.libass-cache.outputs.cache-hit != 'true'
+        run: brew install meson ninja nasm
+
+      - name: Build libass
+        if: steps.libass-cache.outputs.cache-hit != 'true'
+        run: Tools/BuildLibass/build.sh
+
+      - name: Save libass xcframeworks
+        if: steps.libass-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            Binaries/UmbelASS.xcframework
+            Binaries/UmbelFriBidi.xcframework
+          key: ${{ steps.libass-cache.outputs.cache-primary-key }}
+
+      # Even when a cache hit skips the licence guard in the build, the
+      # swift test run in Tools/ci.sh asserts at run time that
+      # avutil_license() says LGPL: a cache cannot slip a non-compliant
+      # product through.
+      #
+      # This step decides the result. It runs every check and every test but
+      # the real-time group (Tools/realtime_tests.sh), which the next step takes.
+      - name: Run checks
+        run: Tools/ci.sh stable
+
+      # The tests that read a real clock: the system player's, an audio
+      # device's, a wait counted in seconds. This runner is a virtual machine
+      # whose sleeps wake late and whose audio device has no latency, so these
+      # tests can fail here with nothing wrong in the code. They run to be
+      # seen, not to decide: a failure shows as a warning on the run, the job
+      # stays green. A developer runs them with the rest, on real hardware
+      # (Tools/ci.sh), and that is where they decide.
+      # The step is skipped when the one before failed: nothing is built to run.
+      - name: Run real-time tests (informational)
+        id: realtime
+        continue-on-error: true
+        timeout-minutes: 25
+        run: Tools/ci.sh realtime
+
+      - name: Say that the real-time tests failed
+        if: steps.realtime.outcome == 'failure'
+        run: |
+          echo "::warning title=Real-time tests::They failed on this virtual machine. They do not decide the result; open the step 'Run real-time tests (informational)' for which ones and what they saw."
+          {
+            echo "### Real-time tests failed (informational)"
+            echo
+            echo "These tests read a real clock, and this runner is a virtual machine. They do not decide the result."
+            echo "See the step *Run real-time tests (informational)* for which ones and what they saw."
+            echo "Before a release they must pass on real hardware: \`Tools/ci.sh\`."
+          } >> "$GITHUB_STEP_SUMMARY"

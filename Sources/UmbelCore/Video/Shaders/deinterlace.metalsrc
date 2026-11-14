@@ -1,0 +1,80 @@
+#include <metal_stdlib>
+using namespace metal;
+
+// One progressive picture from an interlaced frame, one plane at a time
+// (luma: r; chroma: r and g). The kept field's rows are copied as they are.
+// Each missing row is woven from the other field where the picture is still —
+// full resolution, no flicker — and filled in from the kept field's own rows
+// where it moves — no combing — the two mixed by how much it moved.
+
+struct DeinterlaceParameters {
+  uint keptParity;    // 0: the even rows (the top field) are kept; 1: the odd rows
+  uint hasPrevious;   // 0: no frame before, nothing to tell still from moving
+  uint isFirstField;  // 1: the kept field is the earlier of the two in time
+  float stillBelow;   // change under this counts as still
+  float movingAbove;  // change over this counts as moving
+};
+
+static float4 at(texture2d<float, access::read> plane, int x, int y) {
+  int width = int(plane.get_width());
+  int height = int(plane.get_height());
+  return plane.read(uint2(clamp(x, 0, width - 1), clamp(y, 0, height - 1)));
+}
+
+/// The larger difference of the two channels in use.
+static float difference(float4 a, float4 b) {
+  float4 d = abs(a - b);
+  return max(d.r, d.g);
+}
+
+kernel void umbelDeinterlace(texture2d<float, access::read> current [[texture(0)]],
+                             texture2d<float, access::read> previous [[texture(1)]],
+                             texture2d<float, access::write> output [[texture(2)]],
+                             constant DeinterlaceParameters &p [[buffer(0)]],
+                             uint2 gid [[thread_position_in_grid]]) {
+  int width = int(output.get_width());
+  int height = int(output.get_height());
+  int x = int(gid.x), y = int(gid.y);
+  if (x >= width || y >= height) { return; }
+  float4 here = current.read(gid);
+  if (uint(y & 1) == p.keptParity) {
+    output.write(here, gid);
+    return;
+  }
+
+  // The kept rows either side; at the top or bottom edge, the one there is.
+  int above = y > 0 ? y - 1 : y + 1;
+  int below = y + 1 < height ? y + 1 : y - 1;
+  float4 up = at(current, x, above), down = at(current, x, below);
+
+  // Within the field: of three directions through this pixel, the one whose
+  // ends differ least, its ends averaged — edges stay edges.
+  float4 spatial = 0.5 * (up + down);
+  float best = difference(up, down);
+  for (int dx = -1; dx <= 1; dx += 2) {
+    float4 a = at(current, x + dx, above);
+    float4 b = at(current, x - dx, below);
+    float cost = difference(a, b);
+    if (cost < best) {
+      best = cost;
+      spatial = 0.5 * (a + b);
+    }
+  }
+
+  // From the other field: for the earlier field, halfway between the frame
+  // before and this one, each half a frame away; for the later, this frame's.
+  float4 woven = here;
+  float motion = 1.0;
+  if (p.hasPrevious != 0) {
+    float4 before = previous.read(gid);
+    if (p.isFirstField != 0) { woven = 0.5 * (here + before); }
+    float around = 0.5 * (difference(up, at(previous, x, above)) + difference(down, at(previous, x, below)));
+    motion = max(difference(here, before), around);
+  }
+  float moving = smoothstep(p.stillBelow, p.movingAbove, motion);
+  // Pulled towards the rows either side as motion grows: what a slow
+  // movement would leave of a comb is pulled in. Still, it is left alone.
+  float slack = 1.0 - moving;
+  woven = clamp(woven, min(up, down) - slack, max(up, down) + slack);
+  output.write(mix(woven, spatial, moving), gid);
+}
