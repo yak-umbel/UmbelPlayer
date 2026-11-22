@@ -5,7 +5,7 @@ import UmbelFFmpegSupport
 public enum Umbel {
   /// The package version. Semantic versioning: breaking API changes come
   /// only with a major version.
-  public static let version = "0.3.0"
+  public static let version = "0.4.0"
 
   /// The version of the FFmpeg actually loaded, as it says itself, such as
   /// "n9.0.2"; nil if it cannot say. Another copy of FFmpeg in the app

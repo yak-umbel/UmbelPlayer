@@ -11,7 +11,7 @@ It currently covers iOS / iPadOS and native macOS. Mac Catalyst, tvOS and vision
 
 The core has the main capabilities that everyday playback and integration into a host app need; a complete default player interface and more platforms are still to come.
 
-The current source version is `0.3.0`, still a pre-release (`0.x`: public interfaces may change). The [release checklist](docs/release-checklist.md) records what has been verified and what still awaits manual checks; the [changelog](CHANGELOG.md) lists each version's changes. For now `UmbelUI` mainly wraps picture in picture; controls, gestures and settings are up to the host.
+The current source version is `0.4.0`, still a pre-release (`0.x`: public interfaces may change). The [release checklist](docs/release-checklist.md) records what has been verified and what still awaits manual checks; the [changelog](CHANGELOG.md) lists each version's changes. For now `UmbelUI` mainly wraps picture in picture; controls, gestures and settings are up to the host.
 
 The documents below are currently in Chinese.
 
