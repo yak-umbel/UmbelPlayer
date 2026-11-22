@@ -8,6 +8,13 @@ import LibASS
 /// arrangement as the FFmpeg decoder wrappers.
 public final class ASSLibrary: @unchecked Sendable {
   let pointer: OpaquePointer
+  /// Counts what libass reports, for as long as the library lives. libass
+  /// holds the pointer, so the library keeps one reference to it.
+  private let tally = ASSMessageTally()
+
+  /// Glyph lookups libass has given up on since the library was made: a
+  /// character in no font it can use. Only ever grows; take differences.
+  var unresolvedGlyphCount: Int { tally.unresolvedGlyphs }
 
   /// The version of the libass loaded, such as "0.17.5".
   public static var version: String { version(fromNumber: ass_library_version()) }
@@ -25,9 +32,13 @@ public final class ASSLibrary: @unchecked Sendable {
     // ass_library_init only fails on allocation failure.
     pointer = ass_library_init()!
     // libass prints to stderr by default, and it is chatty: missing glyphs and
-    // font fallbacks are reported on every render. None of it is actionable
-    // from inside a player, so it is silenced.
-    ass_set_message_cb(pointer, { _, _, _, _ in }, nil)
+    // font fallbacks are reported on every render. None of it is worth a
+    // line of output from inside a player, so it is not printed; only the
+    // lookups it gave up on are counted.
+    ass_set_message_cb(pointer, { _, format, _, data in
+      guard let format, let data else { return }
+      ASSMessageTally.record(format: format, in: data)
+    }, Unmanaged.passUnretained(tally).toOpaque())
     // A script can carry its fonts in a [Fonts] section, in the file or in a
     // container track's header. libass decodes them either way but keeps
     // them only when asked to; without this, lines set in them fall back to

@@ -23,6 +23,11 @@ public struct ASSFrame: Sendable {
   /// False when the picture is the same as the previous call's; the caller
   /// can keep what it composited last time.
   public let isChanged: Bool
+  /// Glyph lookups libass gave up on while drawing this frame: characters
+  /// that no font it can use covers. Zero when every character was drawn.
+  public let unresolvedGlyphCount: Int
+  /// How long libass took to produce this frame, in seconds.
+  public let renderDuration: TimeInterval
 }
 
 /// Turns a track into images at a given time.
@@ -32,8 +37,15 @@ public final class ASSRenderer: @unchecked Sendable {
   private let pointer: OpaquePointer
   private let library: ASSLibrary
 
-  public init(library: ASSLibrary) {
+  /// The family libass uses for a line whose own font is missing. Nil: the
+  /// platform's sans-serif, a Latin font.
+  public var defaultFamily: String? {
+    didSet { if defaultFamily != oldValue { reloadFonts() } }
+  }
+
+  public init(library: ASSLibrary, defaultFamily: String? = nil) {
     self.library = library
+    self.defaultFamily = defaultFamily
     pointer = ass_renderer_init(library.pointer)!
     reloadFonts()
   }
@@ -44,9 +56,12 @@ public final class ASSRenderer: @unchecked Sendable {
 
   /// Fonts come from CoreText — no fontconfig on Apple platforms — plus
   /// whatever was added to the library. Call again after adding fonts.
+  /// libass forgets what it had cached of fonts and pictures, so the next
+  /// drawing starts from the new set.
   public func reloadFonts() {
     ass_set_fonts(
-      pointer, nil, "sans-serif", Int32(ASS_FONTPROVIDER_CORETEXT.rawValue), nil, 1)
+      pointer, nil, defaultFamily ?? "sans-serif",
+      Int32(ASS_FONTPROVIDER_CORETEXT.rawValue), nil, 1)
   }
 
   /// The size of the picture drawn into, in pixels.
@@ -68,7 +83,11 @@ public final class ASSRenderer: @unchecked Sendable {
   public func render(_ track: ASSTrack, atMilliseconds time: Int64) -> ASSFrame {
     var change: Int32 = 0
     var images: [ASSImage] = []
+    let unresolvedBefore = library.unresolvedGlyphCount
+    let started = ProcessInfo.processInfo.systemUptime
     var node = ass_render_frame(pointer, track.pointer, time, &change)
+    let duration = ProcessInfo.processInfo.systemUptime - started
+    let unresolved = library.unresolvedGlyphCount - unresolvedBefore
     while let image = node {
       let piece = image.pointee
       if piece.w > 0, piece.h > 0, let bitmap = piece.bitmap {
@@ -82,6 +101,8 @@ public final class ASSRenderer: @unchecked Sendable {
       }
       node = piece.next
     }
-    return ASSFrame(images: images, isChanged: change != 0)
+    return ASSFrame(
+      images: images, isChanged: change != 0,
+      unresolvedGlyphCount: unresolved, renderDuration: duration)
   }
 }

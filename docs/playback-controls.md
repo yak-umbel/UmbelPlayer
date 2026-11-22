@@ -269,6 +269,53 @@ number of view points. The snapshot is the full video picture; fit/fill cropping
 the on-screen viewport is not included. Placement is applied independently to
 each selected slot. Use the `for:` overload to reserve control-bar space for both.
 
+## ASS subtitle drawing
+
+```swift
+let font = try Data(contentsOf: fontURL) // covers the characters your subtitles use
+await session.setSubtitleFonts(UmbelSubtitleFonts(fonts: [font], defaultFamily: "Family Name"))
+
+let cost = await session.subtitleRenderStatistics
+// cost.renderCount, cost.longestRender (seconds), cost.unresolvedGlyphCount
+let track = await session.selectedSubtitleTrack(for: .primary) // the track ID shown
+```
+
+**How often libass is asked.** The display asks for the subtitle picture on every
+tick, and libass lays a line out again on every call, so the picture is drawn once
+and handed back unchanged (`isChanged == false`, the same images) for as long as it
+holds: until an event starts or ends, the output size or the scale changes, a
+packet arrives for a line that would be on screen, or fonts are set. A line that
+stays up for three seconds costs one drawing however fast the display runs. Lines
+that change by themselves — a transform (`\t`), `\move`, a fade (`\fad`, `\fade`),
+a karaoke sweep (`\k`, `\K`, `\kf`, `\ko`), or any non-empty Effect field — are
+drawn again at most once per 16 ms of subtitle time and not for earlier moments.
+The test is by tag name and errs toward animated: a line wrongly treated as moving
+only costs redrawing; one wrongly treated as still would freeze.
+
+**Fonts.** libass draws only from font files it can read itself. A script names the
+fonts it was written for; where the device lacks one, libass falls back, and where
+no readable font covers a character the line shows as empty boxes, and libass looks
+the character up again on every drawing, which is slow. `setSubtitleFonts(_:)`
+gives libass font files (TrueType, OpenType or collections) and `defaultFamily`, the
+family it falls back to. It applies to the ASS tracks showing now and to any shown
+later, redraws a paused picture, and adds to the fonts a track already has: set the
+whole collection once, early. Each shown ASS track holds its own copy in libass, so
+a large font costs its size again per track shown, twice with two slots. Fonts
+carried by the container or the script itself are used as before.
+
+Without a default family the fallback is the platform's sans-serif, a Latin font.
+**On iOS the system Chinese font cannot serve as a fallback**: the one font file the
+system has for it stores its outlines in a table FreeType, which libass draws with,
+does not read, so libass lists the family and then fails to open it. The same lines
+that draw correctly on macOS come out as boxes on iOS unless the host supplies a font.
+
+**Diagnostics.** `subtitleRenderStatistics` totals, across every ASS track the
+session has shown, how many times libass drew a picture, the longest single drawing
+and the glyph lookups it gave up on (`unresolvedGlyphCount`: characters no usable
+font covers; each drawing of such a line counts again). A renderCount that climbs
+with the display rate, or a count above zero, says where a slowdown is. The track
+shown is `selectedSubtitleTrack(for:)`.
+
 ## Cached PCM
 
 ```swift

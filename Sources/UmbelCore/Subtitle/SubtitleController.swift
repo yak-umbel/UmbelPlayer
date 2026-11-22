@@ -16,6 +16,10 @@ internal actor SubtitleController {
   private var externalOrder: [UmbelTrack.ID] = []
   private var nextExternalID: Int32 = 1_000_000
   private var fonts: [EmbeddedFont] = []
+  /// The fonts the host gave ASS tracks; each ASS source is made with them.
+  internal private(set) var hostFonts = UmbelSubtitleFonts()
+  /// What libass's drawings cost, over every source this controller makes.
+  private let renderMeter = SubtitleRenderMeter()
   /// Selection/settings revisions also invalidate rendering suspended on a source actor.
   private var revision = 0
   private var renderedRevision = -1
@@ -128,7 +132,9 @@ internal actor SubtitleController {
     if let id {
       if let entry = external[id] {
         track = entry.track
-        ass = entry.assScript.flatMap { ASSSubtitleSource(script: $0, fonts: fonts) }
+        ass = entry.assScript.flatMap {
+          ASSSubtitleSource(script: $0, fonts: fonts, hostFonts: hostFonts, meter: renderMeter)
+        }
       } else {
         let tracks = await demux.tracks
         guard !isClosed, generation == state.selectionGeneration else { return }
@@ -141,7 +147,9 @@ internal actor SubtitleController {
           return
         }
         let source = selected.codecName == "ass" || selected.codecName == "ssa"
-          ? ASSSubtitleSource(header: decoder.subtitleHeader, fonts: fonts) : nil
+          ? ASSSubtitleSource(
+            header: decoder.subtitleHeader, fonts: fonts, hostFonts: hostFonts, meter: renderMeter)
+          : nil
         session = SubtitleDecodeSession(
           decoder: decoder, assSource: source,
           fallbackCanvas: tracks.first { $0.kind == .video }?.video.map {
@@ -160,6 +168,19 @@ internal actor SubtitleController {
       state.replayRevision = replayRevision
     }
     await old?.close()
+  }
+
+  internal var renderStatistics: UmbelSubtitleRenderStatistics { renderMeter.statistics }
+
+  /// Sources made afterwards get the fonts as they are made; those showing
+  /// now get them here, and redraw.
+  internal func setHostFonts(_ fonts: UmbelSubtitleFonts) async {
+    guard !isClosed, fonts != hostFonts else { return }
+    hostFonts = fonts
+    revision += 1
+    for state in [primary, secondary] {
+      await (state.externalASS ?? state.decoder?.assSource)?.use(fonts)
+    }
   }
 
   internal func loadEmbeddedFonts() async {
